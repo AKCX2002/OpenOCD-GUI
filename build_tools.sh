@@ -157,6 +157,7 @@ install_linux_dependencies() {
             libftdi1-dev \
             libhidapi-dev \
             zlib1g-dev \
+            libjim-dev \
             zip
     elif command -v yum &> /dev/null; then
         echo "检测到 CentOS/RHEL 系统，使用 yum 安装依赖"
@@ -189,12 +190,13 @@ install_macos_dependencies() {
             pkg-config \
             libusb \
             libftdi \
-            hidapi
+            hidapi \
+            jimtcl
         
         if ! command -v texinfo &> /dev/null; then
             echo "安装 texinfo (OpenOCD 文档构建需要)"
             brew install texinfo
-            export PATH="/usr/local/opt/texinfo/bin:$PATH"
+            export PATH="$(brew --prefix texinfo)/bin:$PATH"
         fi
     else
         echo "警告：未找到 Homebrew，请手动安装依赖库或先安装 Homebrew"
@@ -215,6 +217,7 @@ install_windows_dependencies() {
             mingw-w64-x86_64-libusb \
             mingw-w64-x86_64-libftdi \
             mingw-w64-x86_64-hidapi \
+            mingw-w64-x86_64-jimtcl \
             mingw-w64-x86_64-pkg-config \
             zip
     else
@@ -241,6 +244,7 @@ fetch_openocd_source() {
     
     git checkout master
     git pull origin master
+    git submodule update --init --recursive
     
     local git_short_hash=$(git rev-parse --short HEAD)
     local git_commit_date=$(git log -1 --format=%cd --date=short)
@@ -270,13 +274,18 @@ build_openocd() {
     local configure_opts="--prefix=${BUILD_DIR} --disable-werror"
     
     if [ "${PLATFORM}" = "macos" ]; then
-        if [ -d "/usr/local/opt/libusb" ]; then
-            export LIBUSB_CFLAGS="-I/usr/local/opt/libusb/include"
-            export LIBUSB_LIBS="-L/usr/local/opt/libusb/lib -lusb-1.0"
+        # Detect Homebrew prefix (Apple Silicon: /opt/homebrew, Intel: /usr/local)
+        BREW_PREFIX=$(brew --prefix 2>/dev/null || echo "/usr/local")
+        if [ -d "${BREW_PREFIX}/opt/libusb" ]; then
+            export LIBUSB_CFLAGS="-I${BREW_PREFIX}/opt/libusb/include"
+            export LIBUSB_LIBS="-L${BREW_PREFIX}/opt/libusb/lib -lusb-1.0"
         fi
-        if [ -d "/usr/local/opt/libftdi" ]; then
-            export LIBFTDI_CFLAGS="-I/usr/local/opt/libftdi/include"
-            export LIBFTDI_LIBS="-L/usr/local/opt/libftdi/lib -lftdi1"
+        if [ -d "${BREW_PREFIX}/opt/libftdi" ]; then
+            export LIBFTDI_CFLAGS="-I${BREW_PREFIX}/opt/libftdi/include"
+            export LIBFTDI_LIBS="-L${BREW_PREFIX}/opt/libftdi/lib -lftdi1"
+        fi
+        if [ -d "${BREW_PREFIX}/opt/jimtcl" ]; then
+            export PKG_CONFIG_PATH="${BREW_PREFIX}/opt/jimtcl/lib/pkgconfig:${PKG_CONFIG_PATH}"
         fi
         if [ -d "/opt/local" ]; then
             export LDFLAGS="-L/opt/local/lib"
@@ -293,9 +302,9 @@ build_openocd() {
         --enable-cmsis-dap \
         --enable-hidapi-libusb
     
-    echo "开始编译 (使用 $(nproc) 个线程)..."
+    echo "开始编译 (使用 $(nproc 2>/dev/null || sysctl -n hw.logicalcpu) 个线程)..."
     make clean
-    make -j$(nproc)
+    make -j$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
     
     echo "安装编译产物..."
     make install

@@ -96,7 +96,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential git autoconf automake libtool \
-            libusb-1.0-0-dev libftdi-dev libftdi1-dev libhidapi-dev zlib1g-dev pkg-config zip
+            libusb-1.0-0-dev libftdi-dev libftdi1-dev libhidapi-dev zlib1g-dev pkg-config zip \
+            libjim-dev
 
       - name: Make build script executable
         run: chmod +x build_tools.sh
@@ -167,13 +168,15 @@ jobs:
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-libusb
             mingw-w64-x86_64-libftdi
+            mingw-w64-x86_64-hidapi
+            mingw-w64-x86_64-jimtcl
             mingw-w64-x86_64-pkg-config
 
       - name: Build OpenOCD
+        shell: msys2 {0}
         run: |
           export BUILD_VERSION=${{ env.BUILD_VERSION }}
-          export OPENOCD_VERSION=${{ env.OPENOCD_VERSION }}
-          msys2 -c 'cd /d/a/f1c/f1c && chmod +x build_tools.sh && ./build_tools.sh'
+          chmod +x build_tools.sh && ./build_tools.sh
 
       - name: Verify build artifacts
         run: |
@@ -235,7 +238,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          brew install autoconf automake libtool libusb libftdi pkg-config
+          brew install autoconf automake libtool libusb libftdi pkg-config jimtcl
 
       - name: Make build script executable
         run: chmod +x build_tools.sh
