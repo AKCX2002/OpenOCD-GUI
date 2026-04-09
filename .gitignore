@@ -1,2 +1,47 @@
+# Flutter/Dart
 bin/*.bin
 __pycache__
+*.class
+*.dart.js
+*.js
+*.lock
+*.metadata
+*.packages
+*.pyc
+*.so
+*.tar.gz
+*.tgz
+*.zip
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub
+build/
+flutter_export_environment.sh
+lib/generated_plugin_registrant.dart
+pubspec.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Testing
+coverage/
+test/coverage/
+
+# Other
+.env
+.env.local
+.env.*.local

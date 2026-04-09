@@ -1,0 +1,61 @@
+name: Build OpenOCD Tools
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git autoconf automake libtool libusb-1.0-0-dev libftdi-dev
+    - name: Build OpenOCD
+      run: |
+        chmod +x build_tools.sh
+        ./build_tools.sh
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: openocd-linux
+        path: bin/
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install dependencies
+      run: |
+        choco install git make gcc
+    - name: Build OpenOCD
+      run: |
+        .\build_tools.sh
+      shell: bash
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: openocd-windows
+        path: bin/
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install dependencies
+      run: |
+        brew install git make gcc libusb
+    - name: Build OpenOCD
+      run: |
+        chmod +x build_tools.sh
+        ./build_tools.sh
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: openocd-macos
+        path: bin/

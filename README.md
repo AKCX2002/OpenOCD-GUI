@@ -1,60 +1,161 @@
-# f1c GUI 工具
+# F1C 通用下载平台
 
-这是一个基于 Tkinter 的图形界面，用于通过 `sunxi-fel`（SPI / Allwinner）或 `openocd`（AT32）向设备烧录固件、查看 SPI 信息及执行常用调试命令。
+## 项目概述
 
-## **主要功能**
+通用下载平台是一个跨平台的固件下载工具，重点支持通过 OpenOCD 对各种 32 位 MCU 进行固件烧录和调试。
 
-- 通过 `sunxi-fel` 写入 SPI flash（BOOT0 / LOGO / EXEC 等）。
-- 通过 `openocd` 向 AT32 设备写入固件（支持 `.bin`、`.hex`、`.elf`）。
-- Intel HEX 文件地址自动识别（地址留空时可解析起始地址）。
-- ELF 支持（openocd 模式下，ELF 可不填地址，openocd 将使用 ELF 内置段地址）。
-- 提供“常用功能”下拉（如 device/version、spiflash-info、reset、flash erase 等）。
-- sunxi 模式下提供“全片擦除（写 0xFF）”作为擦除替代方案（当本地 sunxi-fel 版本没有 spiflash-erase 命令时）。
+### 支持的平台
+- Linux
+- Windows
+- macOS
 
-## 注意与限制
+### 支持的设备
+- STM32 系列
+- AT32 系列
+- GD32 系列
+- 其他支持 OpenOCD 的 MCU
 
-- 本工具为 GUI 前端，实际烧录依赖系统上可执行的 `sunxi-fel` 与/或 `openocd`。
-- 在 Windows 下推荐在 WSL/WSL2 的 Linux 环境中使用 `sunxi-fel`。
-- `sunxi-fel` 的全片擦除这里采用“写 0xFF”分块写入实现，速度较慢，请谨慎使用并确保电源稳定。
-- HEX 自动识别基于解析 Intel HEX 格式；若格式不合规可能无法识别，请手动输入地址或转换为 bin。
-- ELF 支持目前仅在 openocd 模式使用；若想用 ELF 写入 SPI（sunxi），请先用 `objcopy` 转为二进制：
+## 核心功能
 
-  ```bash
-  arm-none-eabi-objcopy -O binary input.elf output.bin
-  ```
+- **设备管理**：支持多种设备类型的检测和管理
+- **固件管理**：支持 .bin、.hex、.elf 等多种固件格式
+- **烧录工具**：集成 OpenOCD 烧录工具
+- **操作功能**：设备检测、固件烧录、全片擦除、复位等
+- **用户界面**：边栏式布局，提供直观的操作界面
+- **日志系统**：实时显示操作日志和进度
 
-## 快速开始
+## 技术架构
 
-1. 安装依赖（至少需要 Python + Tkinter）：
+### 前端
+- Flutter 框架，跨平台 UI
+- Dart 语言，处理核心逻辑
 
+### 后端
+- 集成 OpenOCD 工具
+- 自动工具拉取和编译
+- 可扩展的设备驱动系统
+
+## 安装和使用
+
+### 前置依赖
+
+#### Linux
 ```bash
-sudo apt update
-sudo apt install -y python3 python3-tk
-# 安装 openocd / sunxi-fel（按需）
-sudo apt install -y openocd sunxi-tools
-# 或自行编译并把可执行放到 PATH 或项目 lib 下
+sudo apt install build-essential git autoconf automake libtool libusb-1.0-0-dev libftdi-dev
 ```
 
-1. 运行 GUI：
+#### Windows
+- 安装 Git Bash
+- 安装 MinGW 或 MSYS2
 
+#### macOS
 ```bash
-python3 f1c_gui.py
+brew install git make gcc libusb
 ```
 
-1. 在程序目录选择 `bin/`（或你放固件的目录），点击“刷新”，界面会自动列出 `.bin/.hex/.elf` 文件。
+### 构建工具
 
-## 使用建议
+项目包含自动构建脚本，可自动拉取和编译 OpenOCD：
 
-- 如果使用 `sunxi-fel` 模式，请确保选择的是 `.bin` 文件（界面会只在 BOOT0/EXEC/LOGO 下列出 `.bin`，避免误操作）。
-- 如果使用 `openocd` 模式，`.hex` 和 `.elf` 可不填写地址（启用“HEX 自动识别地址”或依赖 ELF 内置地址）。模板 `program {file} {addr} verify reset; exit` 可按需修改，例如 `program {file} verify reset; exit`（ELF 无需 {addr}）。
+```bash
+./build_tools.sh
+```
 
-## 故障排查
+### 运行应用
 
-- 启动时报错提示缺少 Tkinter：请按提示安装 `python3-tk`。
-- 报错找不到 `sunxi-fel` 或 `openocd`：请把可执行加入 `PATH`，或在界面中手动指定本地可执行路径。
-- HEX 地址无法识别：检查 HEX 文件是否为标准 Intel HEX，或使用 objcopy 转换后再烧录。
+```bash
+flutter run -d linux  # Linux
+flutter run -d windows  # Windows
+flutter run -d macos  # macOS
+```
 
-## 文件
+## 项目结构
 
-- 主脚本：`f1c_gui.py`
+```
+f1c/
+├── lib/
+│   ├── app.dart                # 应用入口
+│   ├── main.dart              # 主入口
+│   ├── pages/
+│   │   ├── home_page.dart     # 主页面
+│   │   └── settings_page.dart # 设置页面
+│   ├── services/
+│   │   ├── firmware_service.dart  # 固件服务
+│   │   ├── device_service.dart    # 设备服务
+│   │   └── tool_service.dart      # 工具服务
+│   ├── models/
+│   │   ├── device.dart       # 设备模型
+│   │   └── firmware.dart     # 固件模型
+│   └── widgets/
+│       ├── sidebar.dart       # 侧边栏
+│       ├── file_selector.dart # 文件选择器
+│       └── log_viewer.dart    # 日志查看器
+├── tools/
+│   ├── build_tools.sh         # 工具构建脚本
+│   └── README.md              # 工具说明
+├── .github/
+│   └── workflows/
+│       └── build-tools.yml    # GitHub Actions配置
+└── pubspec.yaml               # 项目配置
+```
 
+## 核心功能使用
+
+### 1. 设备选择
+
+在侧边栏中选择设备类型（STM32、AT32、GD32 等）。
+
+### 2. 固件选择
+
+点击 "浏览..." 按钮选择固件文件，支持 .bin、.hex、.elf 等格式。
+
+### 3. 烧录设置
+
+- **地址**：设置烧录地址（对于 .hex 和 .elf 文件可自动识别）
+- **验证**：选择是否验证烧录结果
+- **复位**：选择烧录后是否复位设备
+
+### 4. 执行操作
+
+- **开始下载**：执行固件烧录
+- **执行功能**：执行其他操作，如设备检测、全片擦除、复位等
+
+## 工具自动构建
+
+项目使用 GitHub Actions 自动构建各平台的 OpenOCD 工具：
+
+- **Linux**：在 Ubuntu 环境中构建
+- **Windows**：在 Windows 环境中构建
+- **macOS**：在 macOS 环境中构建
+
+构建结果会作为 artifacts 上传，可在 GitHub Actions 页面下载。
+
+## 故障排除
+
+### 1. 工具未找到
+
+如果应用提示找不到 OpenOCD 工具，请运行构建脚本：
+
+```bash
+./build_tools.sh
+```
+
+### 2. 设备未检测到
+
+- 确保设备已正确连接
+- 确保驱动程序已安装
+- 尝试不同的 USB 端口
+
+### 3. 烧录失败
+
+- 检查固件文件是否正确
+- 检查烧录地址是否正确
+- 检查设备是否处于可烧录状态
+
+## 贡献
+
+欢迎贡献代码和提出建议！请提交 Pull Request 或 Issue。
+
+## 许可证
+
+本项目采用 MIT 许可证。
