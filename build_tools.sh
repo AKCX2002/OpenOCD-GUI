@@ -241,6 +241,7 @@ fetch_openocd_source() {
     
     git checkout master
     git pull origin master
+    git submodule update --init --recursive
     
     local git_short_hash=$(git rev-parse --short HEAD)
     local git_commit_date=$(git log -1 --format=%cd --date=short)
