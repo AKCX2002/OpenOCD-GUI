@@ -1,8 +1,12 @@
-# F1C 通用下载平台
+# OpenOCD-GUI
+
+**版本：0.0.1alpha**
+
+[![Build OpenOCD Tools](https://github.com/yourusername/openocd-gui/actions/workflows/build-tools.yml/badge.svg)](https://github.com/yourusername/openocd-gui/actions/workflows/build-tools.yml)
 
 ## 项目概述
 
-通用下载平台是一个跨平台的固件下载工具，重点支持通过 OpenOCD 对各种 32 位 MCU 进行固件烧录和调试。
+OpenOCD-GUI 是一个跨平台的固件下载工具，重点支持通过 OpenOCD 对各种 32 位 MCU 进行固件烧录和调试。
 
 ### 支持的平台
 - Linux
@@ -64,15 +68,15 @@ brew install git make gcc libusb
 ### 运行应用
 
 ```bash
-flutter run -d linux  # Linux
+flutter run -d linux    # Linux
 flutter run -d windows  # Windows
-flutter run -d macos  # macOS
+flutter run -d macos    # macOS
 ```
 
 ## 项目结构
 
 ```
-f1c/
+openocd-gui/
 ├── lib/
 │   ├── app.dart                # 应用入口
 │   ├── main.dart              # 主入口
@@ -91,12 +95,13 @@ f1c/
 │       ├── file_selector.dart # 文件选择器
 │       └── log_viewer.dart    # 日志查看器
 ├── tools/
-│   ├── build_tools.sh         # 工具构建脚本
-│   └── README.md              # 工具说明
+│   └── openocd/               # OpenOCD 源代码目录
 ├── .github/
 │   └── workflows/
-│       └── build-tools.yml    # GitHub Actions配置
-└── pubspec.yaml               # 项目配置
+│       └── build-tools.yml    # GitHub Actions 配置
+├── build_tools.sh             # 工具构建脚本
+├── pubspec.yaml               # 项目配置
+└── README.md                  # 本文件
 ```
 
 ## 核心功能使用
@@ -126,9 +131,44 @@ f1c/
 
 - **Linux**：在 Ubuntu 环境中构建
 - **Windows**：在 Windows 环境中构建
-- **macOS**：在 macOS 环境中构建
+- **macOS**：在 macOS 环境中构建（支持 x86_64 和 arm64）
 
-构建结果会作为 artifacts 上传，可在 GitHub Actions 页面下载。
+### 触发构建
+
+1. **推送代码**：推送到 main 分支会自动触发构建
+2. **手动触发**：在 GitHub Actions 页面手动运行工作流
+3. **发布版本**：推送 `v*` 标签（如 `v0.0.1alpha`）会自动创建 Release
+
+### 构建产物
+
+每个构建产物包包含：
+- OpenOCD 可执行文件
+- 完整的 OpenOCD 配置脚本
+- `version_info.txt`（版本和构建信息）
+- `README.txt`（使用说明）
+- 压缩包文件及其 SHA256 校验和
+
+## OpenOCD 构建脚本说明
+
+`build_tools.sh` 是一个自动化构建脚本，具有以下特性：
+
+- 自动从 OpenOCD 官方仓库克隆 master 分支最新代码
+- 跨平台支持（Linux、macOS、Windows）
+- 自动安装平台相关依赖
+- 完整的环境检查
+- 详细的构建日志
+- 自动打包和校验和计算
+- 构建产物验证
+
+### 使用方法
+
+```bash
+# 基本使用
+./build_tools.sh
+
+# 自定义构建版本
+BUILD_VERSION=0.0.1alpha ./build_tools.sh
+```
 
 ## 故障排除
 
@@ -152,10 +192,27 @@ f1c/
 - 检查烧录地址是否正确
 - 检查设备是否处于可烧录状态
 
+## 版本历史
+
+### 0.0.1alpha (2026-04-09)
+- 初始版本发布
+- 支持基本的 OpenOCD 集成
+- 实现跨平台自动构建
+- 添加 GitHub Actions CI/CD 流程
+
 ## 贡献
 
 欢迎贡献代码和提出建议！请提交 Pull Request 或 Issue。
 
 ## 许可证
 
-本项目采用 MIT 许可证。
+本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
+
+## 致谢
+
+- OpenOCD 项目团队：https://openocd.org/
+- Flutter 框架：https://flutter.dev/
+
+## 联系方式
+
+如有问题或建议，请通过 GitHub Issues 联系我们。

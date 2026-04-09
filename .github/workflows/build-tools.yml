@@ -3,59 +3,328 @@ name: Build OpenOCD Tools
 on:
   push:
     branches: [ main ]
+    tags:
+      - 'v*'
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      build_version:
+        description: 'Build version (default: date-based)'
+        required: false
+        default: ''
+
+env:
+  BUILD_VERSION: ${{ github.event.inputs.build_version || '' }}
 
 jobs:
-  build-linux:
+  # 准备阶段：确定构建版本
+  prepare:
     runs-on: ubuntu-latest
+    outputs:
+      build_version: ${{ steps.set-version.outputs.build_version }}
+      is_release: ${{ steps.check-release.outputs.is_release }}
     steps:
-    - uses: actions/checkout@v4
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential git autoconf automake libtool libusb-1.0-0-dev libftdi-dev
-    - name: Build OpenOCD
-      run: |
-        chmod +x build_tools.sh
-        ./build_tools.sh
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: openocd-linux
-        path: bin/
+      - name: Checkout code
+        uses: actions/checkout@v4
 
+      - name: Set build version
+        id: set-version
+        run: |
+          if [ -n "${{ env.BUILD_VERSION }}" ]; then
+            BUILD_VERSION=${{ env.BUILD_VERSION }}
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            BUILD_VERSION=${GITHUB_REF#refs/tags/}
+            BUILD_VERSION=${BUILD_VERSION#v}
+          else
+            BUILD_VERSION=$(date +%Y%m%d)
+          fi
+          echo "build_version=$BUILD_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if release
+        id: check-release
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "is_release=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_release=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Linux 构建
+  build-linux:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x86_64]
+    env:
+      BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cache OpenOCD source
+        uses: actions/cache@v4
+        with:
+          path: tools/openocd
+          key: openocd-source-${{ runner.os }}-master
+          restore-keys: |
+            openocd-source-${{ runner.os }}-
+
+      - name: Cache build dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.ccache
+          key: build-deps-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
+
+      - name: Record environment info
+        run: |
+          echo "=== Environment Information ==="
+          echo "Runner OS: ${{ runner.os }}"
+          echo "Runner Arch: ${{ matrix.arch }}"
+          echo "Build Version: ${{ env.BUILD_VERSION }}"
+          echo "GitHub Ref: ${{ github.ref }}"
+          echo "GitHub SHA: ${{ github.sha }}"
+          echo "==============================="
+          echo "System Info:"
+          uname -a
+          echo "==============================="
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git autoconf automake libtool \
+            libusb-1.0-0-dev libftdi-dev libfdt-dev zlib1g-dev pkg-config zip
+
+      - name: Make build script executable
+        run: chmod +x build_tools.sh
+
+      - name: Build OpenOCD
+        run: |
+          export BUILD_VERSION=${{ env.BUILD_VERSION }}
+          export OPENOCD_VERSION=${{ env.OPENOCD_VERSION }}
+          ./build_tools.sh
+
+      - name: Verify build artifacts
+        run: |
+          echo "=== Checking build artifacts ==="
+          ls -la output/
+          if [ -z "$(ls -A output/)" ]; then
+            echo "Error: No build artifacts found!"
+            exit 1
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: openocd-linux-${{ matrix.arch }}-${{ env.BUILD_VERSION }}
+          path: output/
+          retention-days: 30
+
+  # Windows 构建
   build-windows:
+    needs: prepare
     runs-on: windows-latest
+    strategy:
+      matrix:
+        arch: [x86_64]
+    env:
+      BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
+    defaults:
+      run:
+        shell: bash
     steps:
-    - uses: actions/checkout@v4
-    - name: Install dependencies
-      run: |
-        choco install git make gcc
-    - name: Build OpenOCD
-      run: |
-        .\build_tools.sh
-      shell: bash
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: openocd-windows
-        path: bin/
+      - name: Checkout code
+        uses: actions/checkout@v4
 
+      - name: Cache OpenOCD source
+        uses: actions/cache@v4
+        with:
+          path: tools/openocd
+          key: openocd-source-${{ runner.os }}-master
+          restore-keys: |
+            openocd-source-${{ runner.os }}-
+
+      - name: Record environment info
+        run: |
+          echo "=== Environment Information ==="
+          echo "Runner OS: ${{ runner.os }}"
+          echo "Runner Arch: ${{ matrix.arch }}"
+          echo "Build Version: ${{ env.BUILD_VERSION }}"
+          echo "GitHub Ref: ${{ github.ref }}"
+          echo "GitHub SHA: ${{ github.sha }}"
+          echo "==============================="
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: mingw64
+          update: true
+          install: >-
+            base-devel
+            git
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-libusb
+            mingw-w64-x86_64-libftdi
+            mingw-w64-x86_64-pkg-config
+
+      - name: Build OpenOCD
+        run: |
+          export BUILD_VERSION=${{ env.BUILD_VERSION }}
+          export OPENOCD_VERSION=${{ env.OPENOCD_VERSION }}
+          msys2 -c 'cd /d/a/f1c/f1c && chmod +x build_tools.sh && ./build_tools.sh'
+
+      - name: Verify build artifacts
+        run: |
+          echo "=== Checking build artifacts ==="
+          ls -la output/
+          if [ -z "$(ls -A output/)" ]; then
+            echo "Error: No build artifacts found!"
+            exit 1
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: openocd-windows-${{ matrix.arch }}-${{ env.BUILD_VERSION }}
+          path: output/
+          retention-days: 30
+
+  # macOS 构建
   build-macos:
+    needs: prepare
     runs-on: macos-latest
+    strategy:
+      matrix:
+        arch: [arm64, x86_64]
+    env:
+      BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
     steps:
-    - uses: actions/checkout@v4
-    - name: Install dependencies
-      run: |
-        brew install git make gcc libusb
-    - name: Build OpenOCD
-      run: |
-        chmod +x build_tools.sh
-        ./build_tools.sh
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: openocd-macos
-        path: bin/
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cache OpenOCD source
+        uses: actions/cache@v4
+        with:
+          path: tools/openocd
+          key: openocd-source-${{ runner.os }}-${{ matrix.arch }}-${{ env.OPENOCD_VERSION || 'latest' }}
+          restore-keys: |
+            openocd-source-${{ runner.os }}-${{ matrix.arch }}-
+            openocd-source-${{ runner.os }}-
+
+      - name: Cache Homebrew packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Homebrew
+          key: homebrew-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('.github/workflows/*.yml') }}
+
+      - name: Record environment info
+        run: |
+          echo "=== Environment Information ==="
+          echo "Runner OS: ${{ runner.os }}"
+          echo "Runner Arch: ${{ matrix.arch }}"
+          echo "Build Version: ${{ env.BUILD_VERSION }}"
+          echo "GitHub Ref: ${{ github.ref }}"
+          echo "GitHub SHA: ${{ github.sha }}"
+          echo "==============================="
+          echo "System Info:"
+          uname -a
+          echo "==============================="
+
+      - name: Install dependencies
+        run: |
+          brew install autoconf automake libtool libusb libftdi pkg-config
+
+      - name: Make build script executable
+        run: chmod +x build_tools.sh
+
+      - name: Build OpenOCD
+        run: |
+          export BUILD_VERSION=${{ env.BUILD_VERSION }}
+          export OPENOCD_VERSION=${{ env.OPENOCD_VERSION }}
+          ./build_tools.sh
+
+      - name: Verify build artifacts
+        run: |
+          echo "=== Checking build artifacts ==="
+          ls -la output/
+          if [ -z "$(ls -A output/)" ]; then
+            echo "Error: No build artifacts found!"
+            exit 1
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: openocd-macos-${{ matrix.arch }}-${{ env.BUILD_VERSION }}
+          path: output/
+          retention-days: 30
+
+  # 发布到 GitHub Releases
+  release:
+    needs: [prepare, build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: needs.prepare.outputs.is_release == 'true'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Display structure of downloaded files
+        run: ls -laR artifacts/
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          for dir in artifacts/*; do
+            if [ -d "$dir" ]; then
+              cp -v "$dir"/* release-assets/ 2>/dev/null || true
+            fi
+          done
+          ls -la release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 构建失败通知
+  notify-failure:
+    needs: [prepare, build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: always() && (needs.build-linux.result == 'failure' || needs.build-windows.result == 'failure' || needs.build-macos.result == 'failure')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Send failure notification
+        run: |
+          echo "======================================"
+          echo "Build Failed!"
+          echo "======================================"
+          echo "Repository: ${{ github.repository }}"
+          echo "Workflow: ${{ github.workflow }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "SHA: ${{ github.sha }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "======================================"
+          echo "Build results:"
+          echo "  Linux: ${{ needs.build-linux.result }}"
+          echo "  Windows: ${{ needs.build-windows.result }}"
+          echo "  macOS: ${{ needs.build-macos.result }}"
+          echo "======================================"
+          echo "See the full logs at: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
