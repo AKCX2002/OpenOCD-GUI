@@ -198,6 +198,8 @@ install_linux_dependencies() {
 install_macos_dependencies() {
     if command -v brew &> /dev/null; then
         echo "检测到 Homebrew，使用 brew 安装依赖"
+        # 核心依赖列表与 CI workflow 的 brew install 保持同步
+        # hidapi：CMSIS-DAP 支持所需
         brew install \
             autoconf \
             automake \
@@ -206,13 +208,8 @@ install_macos_dependencies() {
             libusb \
             libftdi \
             hidapi \
-            jimtcl
-        
-        if ! command -v texinfo &> /dev/null; then
-            echo "安装 texinfo (OpenOCD 文档构建需要)"
-            brew install texinfo
-            export PATH="/usr/local/opt/texinfo/bin:$PATH"
-        fi
+            jimtcl \
+            ccache
     else
         echo "警告：未找到 Homebrew，请手动安装依赖库或先安装 Homebrew"
         echo "Homebrew 安装地址：https://brew.sh/"
@@ -308,20 +305,24 @@ build_openocd() {
     # MSYS2/MINGW64 下，OpenOCD 的 jimtcl 子配置有时不会自动继承可用编译器。
     # 显式导出工具链（使用完整路径），避免 configure.gnu 误判"找不到可工作的 C compiler"。
     if [ "${PLATFORM}" = "windows" ]; then
-        local tool_prefix="/mingw64/bin"
-        if [ "${MSYSTEM:-MINGW64}" = "UCRT64" ]; then
-            tool_prefix="/ucrt64/bin"
+        # CI 默认使用 UCRT64；MINGW64 仅用于本地兼容性回退
+        local tool_prefix="/ucrt64/bin"
+        if [ "${MSYSTEM:-UCRT64}" = "MINGW64" ]; then
+            tool_prefix="/mingw64/bin"
         fi
 
-        export CC="${tool_prefix}/gcc"
-        export CXX="${tool_prefix}/g++"
-        export AR="${tool_prefix}/ar"
-        export RANLIB="${tool_prefix}/ranlib"
-        export STRIP="${tool_prefix}/strip"
-        export NM="${tool_prefix}/nm"
-        export PKG_CONFIG="${tool_prefix}/pkg-config"
+        # 使用 ${VAR:=default} 模式：若 CI 已通过环境变量注入 ccache 包装器
+        # （例如 CC="ccache /ucrt64/bin/gcc"），则保留外部设置，不覆盖
+        : "${CC:=${tool_prefix}/gcc}"
+        : "${CXX:=${tool_prefix}/g++}"
+        : "${AR:=${tool_prefix}/ar}"
+        : "${RANLIB:=${tool_prefix}/ranlib}"
+        : "${STRIP:=${tool_prefix}/strip}"
+        : "${NM:=${tool_prefix}/nm}"
+        : "${PKG_CONFIG:=${tool_prefix}/pkg-config}"
+        export CC CXX AR RANLIB STRIP NM PKG_CONFIG
         export PATH="${tool_prefix}:${PATH}"
-        echo "Windows toolchain (${MSYSTEM:-MINGW64}): CC=${CC}, CXX=${CXX}, PKG_CONFIG=${PKG_CONFIG}"
+        echo "Windows toolchain (${MSYSTEM:-UCRT64}): CC=${CC}, CXX=${CXX}, PKG_CONFIG=${PKG_CONFIG}"
     fi
 
     # macOS 特定：在 bootstrap 和 configure 之前设置 Homebrew 环境变量
@@ -589,6 +590,93 @@ package_windows_build() {
         cp -r "${OPENOCD_DIR}/tcl" "${PACKAGE_PATH}/share/openocd/scripts"
         echo "✓ 复制 OpenOCD 配置文件 (从源码目录)"
     fi
+
+    # 收集运行时 DLL（openocd.exe 在无 MSYS2 环境的 Windows 上运行所必需）
+    collect_windows_dlls
+}
+
+##############################################################################
+# 函数：收集 Windows MSYS2/UCRT64 运行时 DLL
+# 策略参考 b5bda06：先用 ldd 自动发现，失败则使用静态回退列表进行保底
+##############################################################################
+
+collect_windows_dlls() {
+    local exe_path="${PACKAGE_PATH}/openocd.exe"
+    local dll_dest="${PACKAGE_PATH}"
+
+    if [ ! -f "${exe_path}" ]; then
+        echo "⚠ openocd.exe 不存在，跳过 DLL 收集"
+        return
+    fi
+
+    echo "=== 收集 Windows 运行时 DLL ==="
+
+    # 确定 MSYS2 工具链前缀
+    local tool_prefix="/ucrt64/bin"
+    if [ "${MSYSTEM:-UCRT64}" = "MINGW64" ]; then
+        tool_prefix="/mingw64/bin"
+    fi
+
+    local collected=0
+
+    # 优先：使用 ldd 自动发现所有直接/间接 DLL 依赖
+    if command -v ldd &>/dev/null; then
+        echo "使用 ldd 自动发现 DLL 依赖..."
+        while IFS= read -r line; do
+            # ldd 输出格式：  libname.dll => /path/to/libname.dll (0xaddr)
+            local dll_path
+            dll_path=$(echo "${line}" | awk '{print $3}')
+            # 仅收集 MSYS2 安装目录（/ucrt64、/mingw64、/msys/usr）下的 DLL
+            # 跳过 Windows 系统 DLL（/c/Windows/... 以及 "not" 占位符）
+            if [[ -n "${dll_path}" && "${dll_path}" != "not" && -f "${dll_path}" ]]; then
+                case "${dll_path}" in
+                    /ucrt64/*|/mingw64/*|/msys/usr/bin/*)
+                        local dll_name
+                        dll_name=$(basename "${dll_path}")
+                        if cp "${dll_path}" "${dll_dest}/${dll_name}" 2>/dev/null; then
+                            echo "  ✓ ${dll_name}"
+                            (( collected++ )) || true
+                        fi
+                        ;;
+                esac
+            fi
+        done < <(ldd "${exe_path}" 2>/dev/null)
+    fi
+
+    # 回退：ldd 未能发现任何 DLL 时使用静态列表保底（与 b5bda06 macOS 静态回退策略对等）
+    if [ "${collected}" -eq 0 ]; then
+        echo "ldd 未能自动发现 DLL，使用静态回退列表..."
+        local required_dlls=(
+            "libusb-1.0.dll"
+            "libftdi1.dll"
+            "libhidapi-0.dll"
+            "libwinpthread-1.dll"
+            "libgcc_s_seh-1.dll"
+        )
+        local optional_dlls=(
+            "libjaylink-0.dll"
+            "libgcc_s_dw2-1.dll"
+        )
+        for dll in "${required_dlls[@]}"; do
+            if [ -f "${tool_prefix}/${dll}" ]; then
+                cp "${tool_prefix}/${dll}" "${dll_dest}/"
+                echo "  ✓ ${dll}"
+                (( collected++ )) || true
+            else
+                echo "  ⚠ ${dll} 未在 ${tool_prefix} 中找到"
+            fi
+        done
+        for dll in "${optional_dlls[@]}"; do
+            if [ -f "${tool_prefix}/${dll}" ]; then
+                cp "${tool_prefix}/${dll}" "${dll_dest}/"
+                echo "  ✓ ${dll}（可选）"
+                (( collected++ )) || true
+            fi
+        done
+    fi
+
+    echo "✓ 共收集 ${collected} 个 DLL"
+    echo ""
 }
 
 ##############################################################################

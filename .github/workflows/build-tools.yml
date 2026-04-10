@@ -264,6 +264,19 @@ jobs:
           fi
 
       # ============================================
+      # Windows ccache 缓存（与 Linux/macOS 的 ccache 缓存配置对齐）
+      # ============================================
+      - name: Setup ccache (Windows)
+        if: matrix.platform == 'windows'
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.sha }}-${{ vars.CACHE_VERSION || 'v1' }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ matrix.platform }}-${{ matrix.arch }}-${{ vars.CACHE_VERSION || 'v1' }}-
+            ccache-${{ matrix.platform }}-${{ matrix.arch }}-
+
+      # ============================================
       # macOS 平台依赖安装
       # ============================================
       - name: Install macOS dependencies
@@ -273,12 +286,31 @@ jobs:
           HOMEBREW_NO_ENV_HINTS: "1"
           HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
         run: |
-          # 简化：只安装核心依赖，libjaylink 已包含在 OpenOCD 源码中
-          pkgs=(autoconf automake libtool libusb libftdi pkgconf jimtcl ccache)
+          # 核心依赖列表与 build_tools.sh 的 install_macos_dependencies() 保持同步
+          # hidapi：CMSIS-DAP 支持所需（--enable-cmsis-dap 依赖 HIDAPI）
+          pkgs=(autoconf automake libtool libusb libftdi hidapi pkgconf jimtcl ccache)
           # 使用 brew install --quiet 安装所有包，brew 会自动跳过已安装的
           echo "Installing/updating Homebrew packages..."
           brew install --quiet "${pkgs[@]}" || true
           echo "✓ Dependencies installation complete"
+
+      # ============================================
+      # b5bda06 模式复现（macOS）：尝试安装 libjaylink，失败则优雅跳过
+      # build_tools.sh 会通过 pkg-config 检测，不可用时自动禁用 --enable-jlink
+      # ============================================
+      - name: Install libjaylink (macOS)
+        if: matrix.platform == 'macos'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_ENV_HINTS: "1"
+        run: |
+          if brew info --formula libjaylink &>/dev/null 2>&1; then
+            brew install --quiet libjaylink && \
+              echo "✓ libjaylink 安装成功（J-Link 支持已启用）" || \
+              echo "⚠ libjaylink 安装失败，构建将禁用 J-Link 支持"
+          else
+            echo "⚠ Homebrew 无 libjaylink formula，构建将禁用 J-Link 支持"
+          fi
 
       - name: Make build script executable
         run: chmod +x build_tools.sh
@@ -303,8 +335,10 @@ jobs:
         if: matrix.platform == 'windows'
         shell: msys2 {0}
         env:
-          CC: /ucrt64/bin/gcc
-          CXX: /ucrt64/bin/g++
+          # 使用 ccache 包装器提升增量构建速度
+          # build_tools.sh 通过 ${CC:=default} 模式保留此外部注入的 CC，不会覆盖
+          CC: ccache /ucrt64/bin/gcc
+          CXX: ccache /ucrt64/bin/g++
           AR: /ucrt64/bin/ar
           RANLIB: /ucrt64/bin/ranlib
           STRIP: /ucrt64/bin/strip
@@ -313,7 +347,11 @@ jobs:
         run: |
           export BUILD_VERSION=${{ env.BUILD_VERSION }}
           export PATH="/ucrt64/bin:$PATH"
+          # 将 GitHub workspace 的 Windows 路径转换为 MSYS2 Unix 路径（ccache 需要）
+          export CCACHE_DIR="$(cygpath -u "${CCACHE_DIR}" 2>/dev/null || echo "${CCACHE_DIR}")"
+          ccache -s || true
           ./build_tools.sh
+          ccache -s || true
 
       - name: Verify build artifacts
         shell: bash
@@ -329,9 +367,9 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: openocd-${{ matrix.platform }}-${{ matrix.arch }}-${{ env.BUILD_VERSION }}
-          path: |
-            output/
-            ${{ matrix.platform == 'windows' && 'lib/openocd/windows-${{ matrix.arch }}/' || '' }}
+          # 仅上传 output/ 目录：包含压缩包、校验和与版本信息
+          # 注：lib/openocd/ 是工作区内部同步副本，不需要单独上传为 CI 制品
+          path: output/
           retention-days: 30
           if-no-files-found: error
 
@@ -384,32 +422,28 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ============================================
-  # 构建失败通知（可选，仅用于实际项目中配置 Slack/Teams 通知）
+  # 构建失败通知：打印失败摘要，便于快速定位问题
+  # 注：矩阵 build 的 needs.build.result 为单一聚合结果；
+  #     每个平台的详细状态请到 Actions UI 的各 Job 中查看
   # ============================================
   notify-failure:
     needs: [prepare, build]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     if: always() && contains(needs.*.result, 'failure')
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Send failure notification
+      - name: Report build failure
         run: |
           echo "======================================"
-          echo "Build Failed!"
+          echo "⚠ Build Failed!"
           echo "======================================"
           echo "Repository: ${{ github.repository }}"
-          echo "Workflow: ${{ github.workflow }}"
-          echo "Ref: ${{ github.ref }}"
-          echo "SHA: ${{ github.sha }}"
-          echo "Actor: ${{ github.actor }}"
+          echo "Workflow:   ${{ github.workflow }}"
+          echo "Ref:        ${{ github.ref }}"
+          echo "SHA:        ${{ github.sha }}"
+          echo "Actor:      ${{ github.actor }}"
           echo "======================================"
-          echo "Build results:"
-          echo "  Linux x86_64: ${{ needs.build.result }}"
-          echo "  Windows x86_64: ${{ needs.build.result }}"
-          echo "  macOS arm64: ${{ needs.build.result }}"
-          echo "  macOS x86_64: ${{ needs.build.result }}"
+          echo "Matrix build overall result: ${{ needs.build.result }}"
+          echo "(Check individual job details in the Actions UI)"
           echo "======================================"
-          echo "See full logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "Logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
