@@ -189,8 +189,17 @@ jobs:
           which gcc
           which pkg-config
           pkg-config --version
-          # Expected missing before configure would break the build
-          pkg-config --exists hidapi-libusb || pkg-config --exists hidapi-hidraw
+          # Accept any supported hidapi pkg-config name provided by MSYS2
+          if pkg-config --exists hidapi; then
+            pkg-config --modversion hidapi
+          elif pkg-config --exists hidapi-libusb; then
+            pkg-config --modversion hidapi-libusb
+          elif pkg-config --exists hidapi-hidraw; then
+            pkg-config --modversion hidapi-hidraw
+          else
+            echo "hidapi not found in pkg-config"
+            exit 1
+          fi
 
       - name: Build OpenOCD
         shell: msys2 {0}
