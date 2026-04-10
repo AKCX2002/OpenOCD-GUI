@@ -36,6 +36,8 @@ env:
   CCACHE_MAXSIZE: '2G'
   # 稳定性：构建超时（分钟）
   BUILD_TIMEOUT_MINUTES: 60
+  # Node.js 24 支持：提前启用避免 2026 年 6 月弃用问题
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   # ============================================
@@ -149,7 +151,7 @@ jobs:
       # ============================================
       - name: Cache Homebrew packages
         if: matrix.platform == 'macos'
-        uses: actions/cache@0c45773b623a864904a66399a74da172732e
+        uses: actions/cache@v5
         with:
           path: |
             ~/Library/Caches/Homebrew
