@@ -26,7 +26,7 @@ jobs:
       is_release: ${{ steps.check-release.outputs.is_release }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -63,12 +63,12 @@ jobs:
       BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
 
       - name: Cache OpenOCD source
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: tools/openocd-code
           key: openocd-source-${{ runner.os }}-master
@@ -76,7 +76,7 @@ jobs:
             openocd-source-${{ runner.os }}-
 
       - name: Cache build dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/pip
@@ -121,7 +121,7 @@ jobs:
           fi
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: openocd-linux-${{ matrix.arch }}-${{ env.BUILD_VERSION }}
           path: output/
@@ -141,12 +141,12 @@ jobs:
         shell: bash
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
 
       - name: Cache OpenOCD source
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: tools/openocd-code
           key: openocd-source-${{ runner.os }}-master
@@ -218,7 +218,7 @@ jobs:
           fi
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: openocd-windows-${{ matrix.arch }}-${{ env.BUILD_VERSION }}
           path: output/
@@ -235,12 +235,12 @@ jobs:
       BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
 
       - name: Cache OpenOCD source
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: tools/openocd-code
           key: openocd-source-${{ runner.os }}-${{ matrix.arch }}-master
@@ -249,7 +249,7 @@ jobs:
             openocd-source-${{ runner.os }}-
 
       - name: Cache Homebrew packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/Library/Caches/Homebrew
@@ -273,35 +273,6 @@ jobs:
           brew install autoconf automake libtool libusb libftdi pkg-config || true
           # Install jimtcl (embedded Tcl) used by OpenOCD
           brew install jimtcl || true
-          # Try to install libjaylink via Homebrew; if unavailable, build from source below
-          brew install libjaylink || true
-
-          # Verify libjaylink via pkg-config; if missing, build libjaylink from source
-          if ! pkg-config --exists libjaylink-0.2 2>/dev/null; then
-            echo "libjaylink not found via pkg-config — attempting source build"
-            # Try known candidate repositories for libjaylink
-            LIBJAYLINK_DIR=/tmp/libjaylink
-            rm -rf "$LIBJAYLINK_DIR"
-            if ! git clone https://github.com/texane/libjaylink.git "$LIBJAYLINK_DIR" 2>/dev/null; then
-              if ! git clone https://repo.or.cz/jaylink.git "$LIBJAYLINK_DIR" 2>/dev/null; then
-                echo "Warning: failed to clone known libjaylink repositories; continuing without libjaylink"
-              fi
-            fi
-
-            if [ -d "$LIBJAYLINK_DIR" ]; then
-              echo "Building libjaylink from source in $LIBJAYLINK_DIR"
-              cd "$LIBJAYLINK_DIR" || exit 1
-              autoreconf -fi || true
-              ./configure || true
-              make -j$(sysctl -n hw.ncpu || echo 2) || true
-              sudo make install || true
-              # Ensure pkg-config can find the installed .pc
-              export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:/opt/homebrew/lib/pkgconfig:$PKG_CONFIG_PATH"
-              cd - || true
-            fi
-          else
-            echo "libjaylink detected via pkg-config"
-          fi
 
       - name: Make build script executable
         run: chmod +x build_tools.sh
@@ -321,7 +292,7 @@ jobs:
           fi
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: openocd-macos-${{ matrix.arch }}-${{ env.BUILD_VERSION }}
           path: output/
@@ -336,12 +307,12 @@ jobs:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts/
 
@@ -375,7 +346,7 @@ jobs:
     if: always() && (needs.build-linux.result == 'failure' || needs.build-windows.result == 'failure' || needs.build-macos.result == 'failure')
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Send failure notification
         run: |
