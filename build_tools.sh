@@ -245,19 +245,6 @@ install_windows_dependencies() {
             ${msys_pkg_prefix}-hidapi \
             zip
 
-        # ---------------------------------------------------------------
-        # 安装系统 jimtcl 包（关键修复）
-        # 问题：jimtcl 内部 configure.gnu 在 MSYS2/UCRT64 上编译 bootstrap
-        # 二进制时产生 jimsh0.exe，但随后尝试执行 ./jimsh0（无 .exe 扩展名）
-        # 导致报告 "No working C compiler found"，实为 .exe 后缀问题。
-        # 解决方案：优先安装系统 jimtcl 包并使用 --disable-internal-jimtcl。
-        # ---------------------------------------------------------------
-        if pacman -S --noconfirm --needed ${msys_pkg_prefix}-jimtcl 2>/dev/null; then
-            echo "✓ 安装系统 jimtcl (${msys_pkg_prefix}-jimtcl)，将跳过内部 jimtcl 构建"
-        else
-            echo "⚠ ${msys_pkg_prefix}-jimtcl 不可用，将尝试内部 jimtcl（可能遇到 .exe 扩展名问题）"
-        fi
-
         # capstone 为可选功能，部分镜像可能没有对应包，安装失败不阻断主构建
         if ! pacman -S --noconfirm --needed ${msys_pkg_prefix}-capstone; then
             echo "⚠ 未安装 ${msys_pkg_prefix}-capstone（可选），将继续构建"
