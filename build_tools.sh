@@ -347,9 +347,17 @@ build_openocd() {
             fi
             if brew --prefix libftdi >/dev/null 2>&1; then
                 local libftdi_prefix=$(brew --prefix libftdi 2>/dev/null)
-                export LIBFTDI_CFLAGS="-I${libftdi_prefix}/include"
+                # 检查 ftdi.h 可能的位置：直接在 include 或 libftdi1 子目录中
+                local ftdi_include_path="${libftdi_prefix}/include"
+                if [ -f "${libftdi_prefix}/include/libftdi1/ftdi.h" ]; then
+                    ftdi_include_path="${libftdi_prefix}/include/libftdi1"
+                elif [ -f "${libftdi_prefix}/include/ftdi.h" ]; then
+                    ftdi_include_path="${libftdi_prefix}/include"
+                fi
+                export LIBFTDI_CFLAGS="-I${ftdi_include_path}"
                 export LIBFTDI_LIBS="-L${libftdi_prefix}/lib -lftdi1"
                 echo "libftdi prefix: ${libftdi_prefix}"
+                echo "libftdi include path: ${ftdi_include_path}"
             fi
             
             # 调试输出
