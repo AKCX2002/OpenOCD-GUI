@@ -162,27 +162,23 @@ install_linux_dependencies() {
             libhidapi-dev \
             zlib1g-dev \
             zip
-        # OpenOCD requires jimtcl (embedded TCL). Try installing common package names
-        echo "尝试安装 jimtcl (embedded TCL) 依赖..."
-        jim_candidates=(jimtcl libjim-dev libjim0 libjim0-dev jim jimtcl-dev tcl-dev tcl8.6-dev)
-        for pkg in "${jim_candidates[@]}"; do
-            echo "尝试安装包: ${pkg}"
-            if sudo apt-get install -y "${pkg}"; then
-                if pkg-config --exists jimtcl; then
-                    echo "✓ 已安装并检测到 jimtcl via pkg-config"
-                    break
-                else
-                    echo "已安装 ${pkg}，但未通过 pkg-config 检测 jimtcl，继续尝试其他候选包"
-                fi
-            else
-                echo "安装 ${pkg} 失败，继续尝试下一个候选包"
-            fi
-        done
-        # 最后检查 jimtcl 是否可用
-        if ! pkg-config --exists jimtcl; then
-            echo "错误：未能安装或检测到 jimtcl (OpenOCD 所需)。请在 CI 运行器上安装 jimtcl 开发包。"
-            # 不直接退出，这里保留错误返回以让 CI 显示失败（便于调试）
-            exit 1
+        # OpenOCD commonly requires JimTcl. Prefer installing the distro dev package
+        echo "尝试安装 jimtcl (libjim-dev) 依赖..."
+        if sudo apt-get install -y libjim-dev; then
+            echo "✓ 已安装 libjim-dev（如可用）"
+        else
+            echo "⚠ 无法通过 apt 安装 libjim-dev（可能在此发行版不可用），将继续但可能在 configure 阶段失败"
+        fi
+
+        # 检查 jimtcl 是否可用：优先通过 pkg-config，再检查常见头文件路径
+        if pkg-config --exists jimtcl; then
+            echo "✓ 已通过 pkg-config 检测到 jimtcl"
+        elif [ -f /usr/include/jim.h ] || [ -f /usr/local/include/jim.h ] || [ -f /usr/include/jimtcl/jim.h ]; then
+            echo "✓ 在系统头文件中检测到 jim.h（jimtcl 可用）"
+        else
+            echo "⚠ 未检测到 jimtcl（pkg-config/jim.h 均失败）。继续构建，但 configure 可能会失败。"
+            echo "如果 CI 环境缺少 jimtcl，请在运行器上安装 libjim-dev 或从源码构建 jimtcl。"
+            # 不在此处直接退出；让 configure 阶段显示错误以便更具体的调试信息
         fi
     elif command -v yum &> /dev/null; then
         echo "检测到 CentOS/RHEL 系统，使用 yum 安装依赖"
