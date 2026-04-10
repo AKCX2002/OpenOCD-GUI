@@ -170,7 +170,11 @@ jobs:
           echo "GitHub SHA: ${{ github.sha }}"
           echo "==============================="
           echo "System Info:"
-          uname -a 2>/dev/null || systeminfo 2>/dev/null || echo "N/A"
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            echo "Windows (runner.os=${{ runner.os }})"
+          else
+            uname -a 2>/dev/null || echo "N/A"
+          fi
           echo "==============================="
 
       # ============================================
@@ -337,11 +341,11 @@ jobs:
             echo "✓ All dependencies are installed"
           fi
 
-          # Install libjaylink
+          # 必须启用 J-Link：尝试多个源下载 libjaylink
           if brew list --formula libjaylink &>/dev/null; then
             echo "✓ libjaylink is installed"
           elif brew info --formula libjaylink &>/dev/null; then
-            echo "Installing libjaylink"
+            echo "Installing libjaylink from Homebrew"
             brew install libjaylink
           else
             echo "⚠ Homebrew has no libjaylink formula, building from source"
@@ -349,9 +353,43 @@ jobs:
             echo "Working directory: ${workdir}"
             cd "${workdir}"
             
-            echo "Downloading libjaylink source (master branch - latest)..."
-            if curl -L -f -o libjaylink.tar.gz https://github.com/openocd-org/libjaylink/archive/refs/heads/master.tar.gz; then
-                echo "✓ Download successful"
+            # 尝试多种方式获取 libjaylink，确保成功
+            download_success=0
+            
+            # 方式 1: 尝试多个 tar.gz 下载源
+            for url in \
+              "https://gitlab.com/libjaylink/libjaylink/-/archive/master/libjaylink-master.tar.gz" \
+              "https://github.com/openocd-org/libjaylink/archive/refs/tags/0.3.0.tar.gz" \
+              "https://github.com/openocd-org/libjaylink/archive/refs/tags/0.2.0.tar.gz"; do
+              echo "Trying download from: ${url}"
+              if curl -L --retry 3 --retry-delay 2 -f -o libjaylink.tar.gz "${url}"; then
+                echo "✓ Download successful from ${url}"
+                download_success=1
+                break
+              fi
+              echo "✗ Download failed from ${url}, trying next..."
+            done
+            
+            # 方式 2: 如果下载失败，尝试 git clone（配置 Git 避免凭证问题）
+            if [ "${download_success}" -ne 1 ]; then
+              echo "Download failed, trying git clone..."
+              # 配置 Git（避免凭证问题）
+              git config --global user.name "GitHub Actions"
+              git config --global user.email "actions@github.com"
+              git config --global url."https://github.com/".insteadOf git@github.com:
+              
+              if git clone --depth 1 https://github.com/openocd-org/libjaylink.git libjaylink; then
+                echo "✓ Git clone successful"
+                download_success=1
+                cd libjaylink
+              else
+                echo "✗ Git clone also failed"
+                exit 1
+              fi
+            fi
+            
+            # 如果是下载的 tar.gz，需要解压
+            if [ -f libjaylink.tar.gz ]; then
                 ls -lh libjaylink.tar.gz
                 file libjaylink.tar.gz || true
                 
@@ -372,8 +410,9 @@ jobs:
                     exit 1
                 fi
             else
-                echo "✗ Download failed"
-                exit 1
+                # git clone 方式已经在 libjaylink 目录中了
+                echo "Already in libjaylink directory (from git clone)"
+                ls -la
             fi
 
             ./autogen.sh
