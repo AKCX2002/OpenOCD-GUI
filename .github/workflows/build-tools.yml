@@ -349,7 +349,7 @@ jobs:
         run: |
           # 先检测已安装包，仅安装缺失项，避免对已安装包产生 "already installed" 警告
           # 注：pkg-config 在 Homebrew 4.x 已重命名为 pkgconf
-          pkgs=(autoconf automake libtool libusb libftdi pkgconf jimtcl)
+          pkgs=(autoconf automake libtool libusb libftdi libjaylink pkgconf jimtcl)
           missing=()
           for pkg in "${pkgs[@]}"; do
             if brew list --formula "$pkg" &>/dev/null; then
