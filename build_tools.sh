@@ -11,8 +11,7 @@
 # 版本：2.1
 ##############################################################################
 
-set -e
-set -o pipefail
+set -euo pipefail
 set -x
 
 # 保存脚本启动时的工作目录，以便函数内部切换目录后能返回
@@ -106,7 +105,7 @@ create_directories() {
 check_build_environment() {
     echo "=== 检查构建环境 ==="
     
-    local tools=("git" "make" "gcc" "autoconf" "automake" "libtool" "libtoolize" "glibtool" "pkg-config")
+    local tools=("git" "make" "gcc" "autoconf" "automake" "libtool" "pkg-config")
     
     for tool in "${tools[@]}"; do
         if command -v "${tool}" &> /dev/null; then
@@ -164,14 +163,6 @@ install_linux_dependencies() {
             zip \
             libjim-dev \
             libjaylink-dev
-        # OpenOCD commonly requires JimTcl. Prefer installing the distro dev package
-        echo "尝试安装 jimtcl (libjim-dev) 依赖..."
-        if sudo apt-get install -y libjim-dev; then
-            echo "✓ 已安装 libjim-dev（如可用）"
-        else
-            echo "⚠ 无法通过 apt 安装 libjim-dev（可能在此发行版不可用），将继续但可能在 configure 阶段失败"
-        fi
-
         # 检查 jimtcl 是否可用：优先通过 pkg-config，再检查常见头文件路径
         if pkg-config --exists jimtcl; then
             echo "✓ 已通过 pkg-config 检测到 jimtcl"
@@ -236,7 +227,9 @@ install_windows_dependencies() {
         echo "检测到 MSYS2，使用 pacman 安装依赖"
         pacman -S --noconfirm \
             mingw-w64-x86_64-toolchain \
-            mingw-w64-x86_64-autotools \
+            mingw-w64-x86_64-autoconf \
+            mingw-w64-x86_64-automake \
+            mingw-w64-x86_64-libtool \
             mingw-w64-x86_64-libusb \
             mingw-w64-x86_64-libftdi \
             mingw-w64-x86_64-hidapi \
@@ -272,9 +265,13 @@ fetch_openocd_source() {
     git submodule init
     git submodule update --recursive
     
-    local git_short_hash=$(git rev-parse --short HEAD)
-    local git_commit_date=$(git log -1 --format=%cd --date=short)
-    local git_commit_message=$(git log -1 --format=%s)
+    local git_short_hash
+    local git_commit_date
+    local git_commit_message
+
+    git_short_hash=$(git rev-parse --short HEAD)
+    git_commit_date=$(git log -1 --format=%cd --date=short)
+    git_commit_message=$(git log -1 --format=%s)
     
     echo "✓ 当前代码版本: ${git_short_hash}"
     echo "✓ 提交日期: ${git_commit_date}"
@@ -342,16 +339,26 @@ build_openocd() {
         ${ENABLE_JLINK} \
         --enable-cmsis-dap \
         --enable-hidapi-libusb \
-        --enable-jimtcl # <--- 新增这一行，强制使用源码树中的 jimtcl
+        --enable-internal-jimtcl
     
+    cpu_count() {
+        if command -v nproc >/dev/null 2>&1; then
+            nproc
+        elif command -v sysctl >/dev/null 2>&1; then
+            sysctl -n hw.ncpu
+        else
+            echo 2
+        fi
+    }
+
     if [ "${PLATFORM}" = "macos" ]; then
         echo "开始编译 (macOS 使用单线程编译以避免并行编译问题)..."
         make clean
         make
     else
-        echo "开始编译 (使用 $(nproc) 个线程)..."
+        echo "开始编译 (使用 $(cpu_count) 个线程)..."
         make clean
-        make -j$(nproc)
+        make -j"$(cpu_count)"
     fi
     
     echo "安装编译产物..."

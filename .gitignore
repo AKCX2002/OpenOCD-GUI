@@ -45,4 +45,7 @@ test/coverage/
 .env
 .env.local
 .env.*.local
+
 ci log/
+
+*.txt

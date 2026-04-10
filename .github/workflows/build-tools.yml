@@ -16,6 +16,7 @@ on:
 
 env:
   BUILD_VERSION: ${{ github.event.inputs.build_version || '' }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # 准备阶段：确定构建版本
@@ -160,21 +161,34 @@ jobs:
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
-          msystem: mingw64
+          msystem: MINGW64
           update: true
           install: >-
             base-devel
             git
             mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-autoconf
+            mingw-w64-x86_64-automake
+            mingw-w64-x86_64-libtool
             mingw-w64-x86_64-libusb
             mingw-w64-x86_64-libftdi
+            mingw-w64-x86_64-hidapi
             mingw-w64-x86_64-pkg-config
+
+      - name: Verify MSYS2 dependencies
+        shell: msys2 {0}
+        run: |
+          set -e
+          which gcc
+          which pkg-config
+          pkg-config --version
+          # Expected missing before configure would break the build
+          pkg-config --exists hidapi-libusb || pkg-config --exists hidapi-hidraw
 
       - name: Build OpenOCD
         shell: msys2 {0}
         run: |
           export BUILD_VERSION=${{ env.BUILD_VERSION }}
-          export OPENOCD_VERSION=${{ env.OPENOCD_VERSION }}
           chmod +x build_tools.sh
           ./build_tools.sh
 
@@ -210,8 +224,8 @@ jobs:
       - name: Cache OpenOCD source
         uses: actions/cache@v4
         with:
-          path: tools/openocd
-          key: openocd-source-${{ runner.os }}-${{ matrix.arch }}-${{ env.OPENOCD_VERSION || 'latest' }}
+          path: tools/openocd-code
+          key: openocd-source-${{ runner.os }}-${{ matrix.arch }}-master
           restore-keys: |
             openocd-source-${{ runner.os }}-${{ matrix.arch }}-
             openocd-source-${{ runner.os }}-
@@ -277,7 +291,6 @@ jobs:
       - name: Build OpenOCD
         run: |
           export BUILD_VERSION=${{ env.BUILD_VERSION }}
-          export OPENOCD_VERSION=${{ env.OPENOCD_VERSION }}
           ./build_tools.sh
 
       - name: Verify build artifacts
