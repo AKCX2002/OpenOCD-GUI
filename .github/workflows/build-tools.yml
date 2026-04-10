@@ -203,9 +203,9 @@ jobs:
               mingw-w64-ucrt-x86_64-libusb
 
             workdir="$(mktemp -d)"
-            # 使用 wget 直接下载源码压缩包，避免 git clone 需要的凭证配置问题
+            # 使用 curl 直接下载源码压缩包，避免 git clone 需要的凭证配置问题
             cd "${workdir}"
-            wget -q https://github.com/openocd-org/libjaylink/archive/refs/heads/master.tar.gz -O libjaylink-master.tar.gz
+            curl -L -s https://github.com/openocd-org/libjaylink/archive/refs/heads/master.tar.gz -o libjaylink-master.tar.gz
             tar -xzf libjaylink-master.tar.gz
             cd libjaylink-master
 
@@ -378,9 +378,9 @@ jobs:
           else
             echo "⚠ Homebrew 无 libjaylink formula，改为源码编译安装"
             workdir="$(mktemp -d)"
-            # 使用 wget 直接下载源码压缩包，避免 git clone 需要的凭证配置问题
+            # 使用 curl 直接下载源码压缩包（macOS 预装 curl），避免 git clone 需要的凭证配置问题
             cd "${workdir}"
-            wget -q https://github.com/openocd-org/libjaylink/archive/refs/heads/master.tar.gz -O libjaylink-master.tar.gz
+            curl -L -s https://github.com/openocd-org/libjaylink/archive/refs/heads/master.tar.gz -o libjaylink-master.tar.gz
             tar -xzf libjaylink-master.tar.gz
             cd libjaylink-master
 
