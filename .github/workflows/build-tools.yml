@@ -256,7 +256,7 @@ jobs:
           - arch: arm64
             runs-on: macos-latest    # macos-14 = Apple Silicon (M1/M2)
           - arch: x86_64
-            runs-on: macos-13        # 最后一个 Intel (x86_64) GitHub Actions runner
+            runs-on: macos-15-intel    # 使用 macos-15-intel 替代 macos-13，避免 macos-13 区域/标签不可用导致的队列或取消问题
     env:
       BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
     steps:
