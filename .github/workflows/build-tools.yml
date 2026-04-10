@@ -170,11 +170,7 @@ jobs:
           echo "GitHub SHA: ${{ github.sha }}"
           echo "==============================="
           echo "System Info:"
-          if [ "${{ matrix.platform }}" = "windows" ]; then
-            echo "Windows (runner.os=${{ runner.os }})"
-          else
-            uname -a 2>/dev/null || echo "N/A"
-          fi
+          uname -a 2>/dev/null || echo "${{ runner.os }}"
           echo "==============================="
 
       # ============================================
@@ -222,62 +218,14 @@ jobs:
           set -euo pipefail
           echo "=== Install libjaylink for UCRT64 ==="
           
+          # 简化：尝试安装 libjaylink 包，失败则由 build_tools.sh 处理（使用内置 libjaylink）
           if pacman -Si mingw-w64-ucrt-x86_64-libjaylink >/dev/null 2>&1; then
             pacman -S --noconfirm --needed \
               mingw-w64-ucrt-x86_64-libjaylink \
               mingw-w64-ucrt-x86_64-libusb
+            echo "✓ libjaylink installed via pacman"
           else
-            echo "mingw-w64-ucrt-x86_64-libjaylink not found, build from source"
-            pacman -S --noconfirm --needed \
-              autoconf automake libtool make \
-              mingw-w64-ucrt-x86_64-gcc \
-              mingw-w64-ucrt-x86_64-pkgconf \
-              mingw-w64-ucrt-x86_64-libusb
-
-            workdir="$(mktemp -d)"
-            echo "Working directory: ${workdir}"
-            cd "${workdir}"
-            
-            echo "Downloading libjaylink source (master branch - latest)..."
-            if curl -L -f -o libjaylink.tar.gz https://github.com/openocd-org/libjaylink/archive/refs/heads/master.tar.gz; then
-                echo "✓ Download successful"
-                ls -lh libjaylink.tar.gz
-                
-                echo "Extracting..."
-                if tar -xzf libjaylink.tar.gz; then
-                    echo "✓ Extraction successful"
-                    ls -la
-                    libjaylink_dir=$(find . -maxdepth 1 -type d -name "libjaylink-*" | head -1)
-                    if [ -n "${libjaylink_dir}" ] && [ -d "${libjaylink_dir}" ]; then
-                        cd "${libjaylink_dir}"
-                        echo "Entering directory: $(pwd)"
-                    else
-                        echo "✗ Cannot find libjaylink extraction directory"
-                        exit 1
-                    fi
-                else
-                    echo "✗ Extraction failed"
-                    exit 1
-                fi
-            else
-                echo "✗ Download failed"
-                exit 1
-            fi
-
-            ./autogen.sh
-            export MSYS2_ARG_CONV_EXCL="-I;-L"
-            ./configure --host=x86_64-w64-mingw32 --prefix=/ucrt64
-            make -j"$(nproc)"
-            make install
-          fi
-
-          if pkg-config --exists libjaylink-0.2; then
-            pkg-config --modversion libjaylink-0.2
-          elif pkg-config --exists libjaylink; then
-            pkg-config --modversion libjaylink
-          else
-            echo "libjaylink not found in pkg-config"
-            exit 1
+            echo "⚠ libjaylink package not found, will use OpenOCD's built-in libjaylink"
           fi
 
       - name: Verify MSYS2 dependencies (Windows)
@@ -300,13 +248,13 @@ jobs:
             exit 1
           fi
           
-          if pkg-config --exists libjaylink-0.2; then
-            pkg-config --modversion libjaylink-0.2
-          elif pkg-config --exists libjaylink; then
-            pkg-config --modversion libjaylink
+          # libjaylink is optional - will use OpenOCD's built-in version if not found
+          if pkg-config --exists libjaylink-0.2 2>/dev/null; then
+            echo "✓ libjaylink-0.2 found: $(pkg-config --modversion libjaylink-0.2)"
+          elif pkg-config --exists libjaylink 2>/dev/null; then
+            echo "✓ libjaylink found: $(pkg-config --modversion libjaylink)"
           else
-            echo "libjaylink not found in pkg-config"
-            exit 1
+            echo "⚠ libjaylink not found, will use OpenOCD's built-in version"
           fi
           
           if command -v tclsh &>/dev/null; then
@@ -325,6 +273,7 @@ jobs:
           HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_ENV_HINTS: "1"
         run: |
+          # 简化：只安装核心依赖，libjaylink 已包含在 OpenOCD 源码中
           pkgs=(autoconf automake libtool libusb libftdi pkgconf jimtcl ccache)
           missing=()
           for pkg in "${pkgs[@]}"; do
@@ -339,100 +288,6 @@ jobs:
             brew install "${missing[@]}"
           else
             echo "✓ All dependencies are installed"
-          fi
-
-          # 必须启用 J-Link：尝试多个源下载 libjaylink
-          if brew list --formula libjaylink &>/dev/null; then
-            echo "✓ libjaylink is installed"
-          elif brew info --formula libjaylink &>/dev/null; then
-            echo "Installing libjaylink from Homebrew"
-            brew install libjaylink
-          else
-            echo "⚠ Homebrew has no libjaylink formula, building from source"
-            workdir="$(mktemp -d)"
-            echo "Working directory: ${workdir}"
-            cd "${workdir}"
-            
-            # 尝试多种方式获取 libjaylink，确保成功
-            download_success=0
-            
-            # 方式 1: 尝试多个 tar.gz 下载源
-            for url in \
-              "https://gitlab.com/libjaylink/libjaylink/-/archive/master/libjaylink-master.tar.gz" \
-              "https://github.com/openocd-org/libjaylink/archive/refs/tags/0.3.0.tar.gz" \
-              "https://github.com/openocd-org/libjaylink/archive/refs/tags/0.2.0.tar.gz"; do
-              echo "Trying download from: ${url}"
-              if curl -L --retry 3 --retry-delay 2 -f -o libjaylink.tar.gz "${url}"; then
-                echo "✓ Download successful from ${url}"
-                download_success=1
-                break
-              fi
-              echo "✗ Download failed from ${url}, trying next..."
-            done
-            
-            # 方式 2: 如果下载失败，尝试 git clone（配置 Git 避免凭证问题）
-            if [ "${download_success}" -ne 1 ]; then
-              echo "Download failed, trying git clone..."
-              # 配置 Git（避免凭证问题）
-              git config --global user.name "GitHub Actions"
-              git config --global user.email "actions@github.com"
-              git config --global url."https://github.com/".insteadOf git@github.com:
-              
-              if git clone --depth 1 https://github.com/openocd-org/libjaylink.git libjaylink; then
-                echo "✓ Git clone successful"
-                download_success=1
-                cd libjaylink
-              else
-                echo "✗ Git clone also failed"
-                exit 1
-              fi
-            fi
-            
-            # 如果是下载的 tar.gz，需要解压
-            if [ -f libjaylink.tar.gz ]; then
-                ls -lh libjaylink.tar.gz
-                file libjaylink.tar.gz || true
-                
-                echo "Extracting..."
-                if tar -xzf libjaylink.tar.gz; then
-                    echo "✓ Extraction successful"
-                    ls -la
-                    libjaylink_dir=$(find . -maxdepth 1 -type d -name "libjaylink-*" | head -1)
-                    if [ -n "${libjaylink_dir}" ] && [ -d "${libjaylink_dir}" ]; then
-                        cd "${libjaylink_dir}"
-                        echo "Entering directory: $(pwd)"
-                    else
-                        echo "✗ Cannot find libjaylink extraction directory"
-                        exit 1
-                    fi
-                else
-                    echo "✗ Extraction failed"
-                    exit 1
-                fi
-            else
-                # git clone 方式已经在 libjaylink 目录中了
-                echo "Already in libjaylink directory (from git clone)"
-                ls -la
-            fi
-
-            ./autogen.sh
-            install_prefix="$HOME/.local"
-            ./configure --prefix="${install_prefix}"
-            make -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
-            make install
-
-            echo "PKG_CONFIG_PATH=${install_prefix}/lib/pkgconfig:${install_prefix}/share/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
-            echo "CPPFLAGS=-I${install_prefix}/include ${CPPFLAGS:-}" >> "$GITHUB_ENV"
-            echo "LDFLAGS=-L${install_prefix}/lib ${LDFLAGS:-}" >> "$GITHUB_ENV"
-
-            if pkg-config --exists libjaylink-0.2; then
-              echo "✓ libjaylink(from source): $(pkg-config --modversion libjaylink-0.2)"
-            elif pkg-config --exists libjaylink; then
-              echo "✓ libjaylink(from source): $(pkg-config --modversion libjaylink)"
-            else
-              echo "Error: source-installed libjaylink still not found"
-              exit 1
-            fi
           fi
 
       - name: Make build script executable
