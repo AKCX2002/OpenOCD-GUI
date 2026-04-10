@@ -239,9 +239,35 @@ jobs:
           brew install autoconf automake libtool libusb libftdi pkg-config || true
           # Install jimtcl (embedded Tcl) used by OpenOCD
           brew install jimtcl || true
-          # Try to install libjaylink on macOS; if formula unavailable, continue and
-          # let the build script decide (or fallback to source build in workflow later)
+          # Try to install libjaylink via Homebrew; if unavailable, build from source below
           brew install libjaylink || true
+
+          # Verify libjaylink via pkg-config; if missing, build libjaylink from source
+          if ! pkg-config --exists libjaylink-0.2 2>/dev/null; then
+            echo "libjaylink not found via pkg-config — attempting source build"
+            # Try known candidate repositories for libjaylink
+            LIBJAYLINK_DIR=/tmp/libjaylink
+            rm -rf "$LIBJAYLINK_DIR"
+            if ! git clone https://github.com/texane/libjaylink.git "$LIBJAYLINK_DIR" 2>/dev/null; then
+              if ! git clone https://repo.or.cz/jaylink.git "$LIBJAYLINK_DIR" 2>/dev/null; then
+                echo "Warning: failed to clone known libjaylink repositories; continuing without libjaylink"
+              fi
+            fi
+
+            if [ -d "$LIBJAYLINK_DIR" ]; then
+              echo "Building libjaylink from source in $LIBJAYLINK_DIR"
+              cd "$LIBJAYLINK_DIR" || exit 1
+              autoreconf -fi || true
+              ./configure || true
+              make -j$(sysctl -n hw.ncpu || echo 2) || true
+              sudo make install || true
+              # Ensure pkg-config can find the installed .pc
+              export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:/opt/homebrew/lib/pkgconfig:$PKG_CONFIG_PATH"
+              cd - || true
+            fi
+          else
+            echo "libjaylink detected via pkg-config"
+          fi
 
       - name: Make build script executable
         run: chmod +x build_tools.sh
