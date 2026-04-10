@@ -237,8 +237,8 @@ jobs:
       - name: Install dependencies
         run: |
           brew install autoconf automake libtool libusb libftdi pkg-config
-          # Install jim (embedded Tcl) used by OpenOCD
-          brew install jim || true
+          # Install jimtcl (embedded Tcl) used by OpenOCD
+          brew install jimtcl || true
 
       - name: Make build script executable
         run: chmod +x build_tools.sh
