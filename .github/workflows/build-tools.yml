@@ -299,6 +299,7 @@ jobs:
     needs: prepare
     runs-on: ${{ matrix.runs-on }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: arm64
@@ -349,7 +350,7 @@ jobs:
         run: |
           # 先检测已安装包，仅安装缺失项，避免对已安装包产生 "already installed" 警告
           # 注：pkg-config 在 Homebrew 4.x 已重命名为 pkgconf
-          pkgs=(autoconf automake libtool libusb libftdi libjaylink pkgconf jimtcl)
+          pkgs=(autoconf automake libtool libusb libftdi pkgconf jimtcl)
           missing=()
           for pkg in "${pkgs[@]}"; do
             if brew list --formula "$pkg" &>/dev/null; then
@@ -363,6 +364,38 @@ jobs:
             brew install "${missing[@]}"
           else
             echo "✓ 所有依赖均已安装，无需任何操作"
+          fi
+
+          # libjaylink 在 Homebrew 主仓库中可能不存在；若不存在则源码编译安装。
+          if brew list --formula libjaylink &>/dev/null; then
+            echo "✓ libjaylink 已安装，跳过"
+          elif brew info --formula libjaylink &>/dev/null; then
+            echo "安装可选依赖: libjaylink"
+            brew install libjaylink
+          else
+            echo "⚠ Homebrew 无 libjaylink formula，改为源码编译安装"
+            workdir="$(mktemp -d)"
+            git clone --depth 1 https://github.com/openocd-org/libjaylink.git "${workdir}/libjaylink"
+            cd "${workdir}/libjaylink"
+
+            ./autogen.sh
+            install_prefix="$HOME/.local"
+            ./configure --prefix="${install_prefix}"
+            make -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+            make install
+
+            echo "PKG_CONFIG_PATH=${install_prefix}/lib/pkgconfig:${install_prefix}/share/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
+            echo "CPPFLAGS=-I${install_prefix}/include ${CPPFLAGS:-}" >> "$GITHUB_ENV"
+            echo "LDFLAGS=-L${install_prefix}/lib ${LDFLAGS:-}" >> "$GITHUB_ENV"
+
+            if pkg-config --exists libjaylink-0.2; then
+              echo "✓ libjaylink(from source): $(pkg-config --modversion libjaylink-0.2)"
+            elif pkg-config --exists libjaylink; then
+              echo "✓ libjaylink(from source): $(pkg-config --modversion libjaylink)"
+            else
+              echo "Error: source-installed libjaylink still not found by pkg-config"
+              exit 1
+            fi
           fi
 
       - name: Make build script executable
