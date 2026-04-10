@@ -292,7 +292,7 @@ build_openocd() {
     ./bootstrap
     
     echo "配置编译选项..."
-    local configure_opts="--prefix=${BUILD_DIR} --disable-werror"
+    local configure_opts="--prefix=${BUILD_DIR} --disable-werror --enable-internal-jimtcl"
     # 检查 libjaylink（SEGGER J-Link 支持）是否可用；如果不可用则在 configure 时禁用 jlink
     ENABLE_JLINK="--enable-jlink"
     if ! pkg-config --exists libjaylink-0.2 2>/dev/null; then
@@ -330,9 +330,15 @@ build_openocd() {
         --enable-cmsis-dap \
         --enable-hidapi-libusb
     
-    echo "开始编译 (使用 $(nproc) 个线程)..."
-    make clean
-    make -j$(nproc)
+    if [ "${PLATFORM}" = "macos" ]; then
+        echo "开始编译 (macOS 使用单线程编译以避免并行编译问题)..."
+        make clean
+        make
+    else
+        echo "开始编译 (使用 $(nproc) 个线程)..."
+        make clean
+        make -j$(nproc)
+    fi
     
     echo "安装编译产物..."
     make install
