@@ -166,7 +166,7 @@ jobs:
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: true
           install: >-
             base-devel
@@ -174,12 +174,12 @@ jobs:
             autoconf
             automake
             libtool
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-make
-            mingw-w64-x86_64-pkgconf
-            mingw-w64-x86_64-libusb
-            mingw-w64-x86_64-libftdi
-            mingw-w64-x86_64-hidapi
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-make
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-libusb
+            mingw-w64-ucrt-x86_64-libftdi
+            mingw-w64-ucrt-x86_64-hidapi
             zip
 
       - name: Verify MSYS2 dependencies
@@ -204,13 +204,13 @@ jobs:
       - name: Build OpenOCD
         shell: msys2 {0}
         env:
-          CC: /mingw64/bin/gcc
-          CXX: /mingw64/bin/g++
-          AR: /mingw64/bin/ar
-          RANLIB: /mingw64/bin/ranlib
-          STRIP: /mingw64/bin/strip
-          NM: /mingw64/bin/nm
-          PKG_CONFIG: /mingw64/bin/pkg-config
+          CC: /ucrt64/bin/gcc
+          CXX: /ucrt64/bin/g++
+          AR: /ucrt64/bin/ar
+          RANLIB: /ucrt64/bin/ranlib
+          STRIP: /ucrt64/bin/strip
+          NM: /ucrt64/bin/nm
+          PKG_CONFIG: /ucrt64/bin/pkg-config
         run: |
           export BUILD_VERSION=${{ env.BUILD_VERSION }}
           chmod +x build_tools.sh
@@ -229,9 +229,10 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: openocd-windows-${{ matrix.arch }}-${{ env.BUILD_VERSION }}
-          path: output/
+          path: |
+            output/
+            lib/openocd/windows-${{ matrix.arch }}/
           retention-days: 30
-
   # macOS 构建
   build-macos:
     needs: prepare

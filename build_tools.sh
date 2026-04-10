@@ -25,6 +25,7 @@ TOOLS_DIR="${PWD}/tools"
 OPENOCD_DIR="${TOOLS_DIR}/openocd-code"
 BUILD_DIR="${PWD}/build"
 OUTPUT_DIR="${PWD}/output"
+PROGRAM_LIB_ROOT="${PWD}/lib/openocd"
 
 BUILD_VERSION=${BUILD_VERSION:-$(date +%Y%m%d)}
 
@@ -223,19 +224,31 @@ install_macos_dependencies() {
 ##############################################################################
 
 install_windows_dependencies() {
+    local msystem_name="${MSYSTEM:-MINGW64}"
+    local msys_pkg_prefix="mingw-w64-x86_64"
+
+    if [ "${msystem_name}" = "UCRT64" ]; then
+        msys_pkg_prefix="mingw-w64-ucrt-x86_64"
+    fi
+
     if command -v pacman &> /dev/null; then
-        echo "检测到 MSYS2，使用 pacman 安装依赖"
+        echo "检测到 MSYS2(${msystem_name})，使用 pacman 安装依赖"
         pacman -S --noconfirm \
             autoconf \
             automake \
             libtool \
-            mingw-w64-x86_64-gcc \
-            mingw-w64-x86_64-make \
-            mingw-w64-x86_64-pkgconf \
-            mingw-w64-x86_64-libusb \
-            mingw-w64-x86_64-libftdi \
-            mingw-w64-x86_64-hidapi \
+            ${msys_pkg_prefix}-gcc \
+            ${msys_pkg_prefix}-make \
+            ${msys_pkg_prefix}-pkgconf \
+            ${msys_pkg_prefix}-libusb \
+            ${msys_pkg_prefix}-libftdi \
+            ${msys_pkg_prefix}-hidapi \
             zip
+
+        # capstone 为可选功能，部分镜像可能没有对应包，安装失败不阻断主构建
+        if ! pacman -S --noconfirm --needed ${msys_pkg_prefix}-capstone; then
+            echo "⚠ 未安装 ${msys_pkg_prefix}-capstone（可选），将继续构建"
+        fi
     else
         echo "警告：请确保已在 Windows 上安装 MSYS2 或 MinGW 及必要的依赖库"
         echo "MSYS2 安装地址：https://www.msys2.org/"
@@ -295,14 +308,20 @@ build_openocd() {
     # MSYS2/MINGW64 下，OpenOCD 的 jimtcl 子配置有时不会自动继承可用编译器。
     # 显式导出工具链（使用完整路径），避免 configure.gnu 误判"找不到可工作的 C compiler"。
     if [ "${PLATFORM}" = "windows" ]; then
-        export CC="/mingw64/bin/gcc"
-        export CXX="/mingw64/bin/g++"
-        export AR="/mingw64/bin/ar"
-        export RANLIB="/mingw64/bin/ranlib"
-        export STRIP="/mingw64/bin/strip"
-        export NM="/mingw64/bin/nm"
-        export PKG_CONFIG="/mingw64/bin/pkg-config"
-        echo "Windows toolchain (full paths): CC=${CC}, CXX=${CXX}, PKG_CONFIG=${PKG_CONFIG}"
+        local tool_prefix="/mingw64/bin"
+        if [ "${MSYSTEM:-MINGW64}" = "UCRT64" ]; then
+            tool_prefix="/ucrt64/bin"
+        fi
+
+        export CC="${tool_prefix}/gcc"
+        export CXX="${tool_prefix}/g++"
+        export AR="${tool_prefix}/ar"
+        export RANLIB="${tool_prefix}/ranlib"
+        export STRIP="${tool_prefix}/strip"
+        export NM="${tool_prefix}/nm"
+        export PKG_CONFIG="${tool_prefix}/pkg-config"
+        export PATH="${tool_prefix}:${PATH}"
+        echo "Windows toolchain (${MSYSTEM:-MINGW64}): CC=${CC}, CXX=${CXX}, PKG_CONFIG=${PKG_CONFIG}"
     fi
     
     # 确保 jimtcl 子模块已正确初始化
@@ -438,8 +457,40 @@ package_build_artifacts() {
     cp "${OUTPUT_DIR}/version_info.txt" "${PACKAGE_PATH}/"
     create_readme_file
     create_archive
+    sync_to_program_lib
     
     echo "✓ 打包完成"
+    echo ""
+}
+
+##############################################################################
+# 函数：同步构建结果到程序 lib 目录
+##############################################################################
+
+sync_to_program_lib() {
+    echo "=== 同步构建结果到程序 lib 库 ==="
+
+    local target_lib_dir="${PROGRAM_LIB_ROOT}/${PLATFORM}-${ARCH_NAME}"
+    local archive_ext="tar.gz"
+    if [ "${PLATFORM}" = "windows" ]; then
+        archive_ext="zip"
+    fi
+
+    mkdir -p "${target_lib_dir}"
+    rm -rf "${target_lib_dir:?}/"*
+
+    cp -r "${PACKAGE_PATH}/"* "${target_lib_dir}/"
+    cp "${OUTPUT_DIR}/${PACKAGE_NAME}.${archive_ext}" "${target_lib_dir}/"
+
+    cat > "${target_lib_dir}/BUILD_INFO.txt" << BUILD_INFO
+PACKAGE_NAME=${PACKAGE_NAME}
+PLATFORM=${PLATFORM}
+ARCH=${ARCH_NAME}
+BUILD_VERSION=${BUILD_VERSION}
+SYNCED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+BUILD_INFO
+
+    echo "✓ 已同步到 ${target_lib_dir}"
     echo ""
 }
 
